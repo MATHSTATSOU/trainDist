@@ -1,0 +1,20 @@
+Package: trainDist
+Title: Train Delay Distribution via Python (reticulate)
+Version: 0.1.0
+Authors@R: 
+    person(given = "Wayne S.", family = "Stewart", role = c("aut","cre"),
+           email = "wayne.s.stewart@ou.edu")
+Description: Implements the dpqr (density, distribution, quantile, random generation)
+    functions for a train delay distribution where Y in minutes has pdf f(y) = c(25 - y^2)
+    for -5 < y < 5 with c = 3/500. Core math is implemented in Python for speed and
+    numerical robustness, and exposed to R through 'reticulate'.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Depends: R (>= 4.1.0)
+Imports: reticulate
+Suggests: testthat (>= 3.0.0), roxygen2, devtools, knitr, rmarkdown
+Config/testthat/edition: 3
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+VignetteBuilder: knitr

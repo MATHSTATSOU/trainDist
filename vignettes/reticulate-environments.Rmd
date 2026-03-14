@@ -1,0 +1,170 @@
+---
+title: "Reticulate Environments & Reproducibility: Conda / Virtualenv for trainDist"
+author: "Wayne S. Stewart"
+date: "`r format(Sys.Date())`"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 3
+vignette: >
+  %\VignetteIndexEntry{Reticulate Environments & Reproducibility}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+## Why environments matter
+
+When your R code calls Python via **reticulate**, you want a **stable** Python interpreter
+and a **repeatable** set of Python packages. This vignette shows how to:
+
+- Select a specific interpreter (system Python, `virtualenv`, or `conda`).
+- Create and manage environments from R.
+- Make your choice **reproducible** for collaborators and CI.
+- Troubleshoot common issues.
+
+---
+
+## Inspect the current configuration
+
+```{r}
+reticulate::py_config()         # active Python & numpy compatibility (if present)
+reticulate::py_discover_config()# scan for discovered Python installations
+```
+
+---
+
+## Choosing an interpreter for this project
+
+You can pin the interpreter in three main ways (pick one):
+
+### 1) System Python (quickest for stdlib-only code)
+
+```{r}
+Sys.setenv(RETICULATE_PYTHON = "/usr/bin/python3")  # adjust per OS
+# Windows example:
+# Sys.setenv(RETICULATE_PYTHON = "C:/Python311/python.exe")
+```
+
+### 2) A `virtualenv` (works anywhere Python is available)
+
+```{r}
+# Create once per machine (if it doesn't exist yet)
+reticulate::virtualenv_create("~/.virtualenvs/train")
+
+# Activate for this session (do this *before* importing any Python modules)
+reticulate::use_virtualenv("~/.virtualenvs/train", required = TRUE)
+
+# Install Python deps (none needed for trainDist, example only)
+# reticulate::py_install("numpy", envname = "~/.virtualenvs/train")
+```
+
+### 3) A `conda` environment (great when distributing binaries)
+
+```{r}
+# Create once per machine
+reticulate::conda_create("r-train", python_version = "3.11")
+
+# Activate for this session (before importing Python)
+reticulate::use_condaenv("r-train", required = TRUE)
+
+# Install packages into that env if needed
+# reticulate::py_install("numpy", envname = "r-train")
+```
+
+> **Tip:** Call `use_virtualenv()` or `use_condaenv()` at the **top of your script** or
+> inside `.Rprofile` for the project so that it runs before any Python import occurs.
+
+---
+
+## Project-level reproducibility
+
+### Pin the interpreter for collaborators
+
+Create a project `.Renviron` file with a single line:
+
+```
+RETICULATE_PYTHON=/absolute/path/to/python
+```
+
+Restart R so the environment variable takes effect.
+
+### Capture R packages with `{renv}` (optional but recommended)
+
+```{r}
+# install.packages("renv")
+renv::init()         # creates renv.lock with R package versions
+renv::snapshot()     # record reticulate/knitr/rmarkdown versions
+```
+
+### Continuous Integration (CI) sketch
+
+On GitHub Actions (example steps):
+
+1. Set up R and Pandoc (use r-lib/actions).
+2. Install system Python or Miniconda.
+3. Create the chosen env and set `RETICULATE_PYTHON`.
+4. `R CMD check` with `--as-cran`.
+
+This ensures vignettes that import Python code build on CI.
+
+---
+
+## Using `trainDist` with an environment
+
+```{r}
+# Example: use a conda env, then load and call
+# reticulate::use_condaenv("r-train", required = TRUE)
+library(trainDist)
+ptrain(0)
+qtrain(c(0.25, 0.5, 0.75))
+```
+
+For RNG reproducibility across R and Python:
+
+```{r}
+set.seed(1)          # R RNG
+x <- rtrain(5, seed = 42)  # Python RNG inside
+x
+```
+
+---
+
+## Common pitfalls and fixes
+
+- **"ModuleNotFoundError: No module named 'train'"**  
+  Load the package first so that `.onLoad` adds `inst/python` to `sys.path`.
+
+- **Interpreter mismatch after changing `RETICULATE_PYTHON`**  
+  Restart R; once reticulate initializes a Python session, the choice is sticky.
+
+- **Windows path quirks**  
+  Prefer absolute paths, e.g., `C:/Users/<you>/AppData/Local/Programs/Python/Python311/python.exe`.
+
+- **Conda not found**  
+  Install [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or use `reticulate::install_miniconda()`.
+
+- **Building vignettes fails on CI**  
+  Ensure Python is available on PATH *and* the env is activated before the build step.
+
+---
+
+## Appendix: Quick reference
+
+```{r}
+# Inspect
+reticulate::py_config(); reticulate::py_discover_config()
+
+# Select
+# Sys.setenv(RETICULATE_PYTHON = "/path/to/python")
+# reticulate::use_virtualenv("~/.virtualenvs/train", required = TRUE)
+# reticulate::use_condaenv("r-train", required = TRUE)
+
+# Manage
+# reticulate::virtualenv_create("~/.virtualenvs/train")
+# reticulate::conda_create("r-train", python_version = "3.11")
+# reticulate::py_install(c("numpy"), envname = "r-train")
+```

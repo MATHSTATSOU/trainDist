@@ -1,0 +1,223 @@
+---
+title: "Calling Python from R with reticulate: The Train Distribution"
+author: "Wayne S. Stewart"
+date: "`r format(Sys.Date())`"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 3
+vignette: >
+  %\VignetteIndexEntry{Calling Python from R with reticulate: The Train Distribution}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+## Overview
+
+This vignette demonstrates how to expose **Python** implementations of probability
+functions to **R** using the **reticulate** package. We use a custom *train delay*
+distribution with probability density function (PDF)
+
+$$
+ f(y) = c\,(25 - y^2),\quad -5 < y < 5,\qquad c = 3/500.
+$$
+
+From this we build the familiar **dpqr** quartet:
+
+- `dtrain(x)`: density
+- `ptrain(q)`: cumulative distribution function
+- `qtrain(p)`: quantile function (inverse CDF)
+- `rtrain(n)`: random generation via inverse transform
+
+All four are implemented in **Python** and called from **R**.
+
+---
+
+## Installation
+
+From a shell or an R session in the directory above the package:
+
+```r
+# install.packages("devtools")
+devtools::install_local("trainDist", upgrade = "never")
+```
+
+Load the package:
+
+```{r}
+library(trainDist)
+```
+
+---
+
+## Quick examples (dpqr)
+
+### Density `dtrain()`
+
+```{r}
+# Density at a single point and a vector
+dtrain(0)
+xs <- seq(-10, 10, length.out = 501)
+plot(xs, dtrain(xs), type = "l", lwd = 2, col = 2,
+     xlab = "x", ylab = "Density", main = "Train density")
+```
+
+### CDF `ptrain()`
+
+```{r}
+ptrain(0)
+curve(ptrain, from = -10, to = 10, n = 501, lwd = 2,
+      xlab = "q", ylab = "F(q)", main = "Train CDF")
+```
+
+### Quantile `qtrain()`
+
+```{r}
+qtrain(0.75)
+qtrain(c(0.25, 0.5, 0.75))
+```
+
+### Random generation `rtrain()`
+
+```{r}
+set.seed(123)
+x <- rtrain(10000)
+hist(x, prob = TRUE, breaks = 60, col = "gray", border = NA,
+     main = "Random sample vs. density", xlab = "y (minutes late)")
+curve(dtrain, add = TRUE, n = 601, lwd = 2, col = 2)
+```
+
+---
+
+## How the R \u2192 Python bridge is built
+
+This package uses a lightweight pattern that requires **no external Python packages**:
+
+1. **Place Python code inside the package** at `inst/python/train.py`.
+2. On package load, **prepend** that directory to Python's `sys.path` so it can
+   be imported. We do this in `R/zzz.R`:
+
+```r
+.onLoad <- function(libname, pkgname) {
+  if (requireNamespace("reticulate", quietly = TRUE)) {
+    py_dir <- system.file("python", package = pkgname)
+    reticulate::py_run_string(sprintf(
+      "import sys, os; p=r'%s';\nif p not in sys.path: sys.path.insert(0, p)", py_dir))
+  }
+}
+```
+
+3. In your exported R functions, **import and call** the Python functions:
+
+```r
+#' @export
+dtrain <- function(x) {
+  mod <- reticulate::import("train", delay_load = TRUE, convert = TRUE)
+  as.numeric(mod$dtrain(x))
+}
+```
+
+Key points:
+
+- `reticulate::import("train", delay_load = TRUE)` delays import until first use.
+- `convert = TRUE` converts Python lists / scalars to R vectors / numerics.
+- Keeping Python in `inst/python/` avoids path headaches when users install from source or binary.
+
+---
+
+## Required packages and configuration
+
+### R-side dependencies
+
+- **reticulate** (interface to Python).
+- **knitr** and **rmarkdown** (to build this vignette).
+- **testthat** (optional, for the included sanity checks).
+
+These are declared in the package `DESCRIPTION` and installed as needed.
+
+### Python-side dependencies
+
+- None required for this package (uses only the Python standard library).
+
+> If you later rely on third-party Python libraries (e.g., NumPy), prefer declaring
+> them and managing environments with `reticulate` (see below).
+
+### Choosing a Python interpreter
+
+Use `reticulate::py_config()` to see which Python is being used:
+
+```{r}
+reticulate::py_config()
+```
+
+Common ways to control the interpreter used by reticulate:
+
+- Set the environment variable `RETICULATE_PYTHON` to an absolute path to the
+  desired Python **before** starting R (or before loading reticulate):
+
+```r
+Sys.setenv(RETICULATE_PYTHON = "/usr/bin/python3")
+# or on Windows: Sys.setenv(RETICULATE_PYTHON = "C:/Python311/python.exe")
+```
+
+- Use a **virtualenv** or **conda** environment and point reticulate to it:
+
+```r
+reticulate::use_virtualenv("~/.virtualenvs/train", required = TRUE)
+# or
+reticulate::use_condaenv("r-train", required = TRUE)
+```
+
+- You can also create and install Python packages into an environment from R:
+
+```r
+# Create if needed, then install (example for numpy if you ever add it)
+reticulate::virtualenv_create("~/.virtualenvs/train")
+reticulate::py_install("numpy", envname = "~/.virtualenvs/train")
+```
+
+> Tip: Call `use_virtualenv()` / `use_condaenv()` *before* importing any Python
+> modules to ensure the selection takes effect in the current session.
+
+### Reproducibility and seeding
+
+`rtrain(n, seed = NULL)` forwards an optional seed to Python's RNG. For end-to-end
+reproducibility across R and Python, set both seeds if you also use R-side randomness:
+
+```r
+set.seed(1)          # R-side
+r <- rtrain(5, 42)   # Python-side deterministic given seed
+```
+
+---
+
+## Troubleshooting
+
+- **"ModuleNotFoundError: No module named 'train'"**: Ensure the package is loaded
+  so that `.onLoad` has run (it inserts `inst/python` into `sys.path`).
+- **Wrong Python version**: Run `reticulate::py_config()` and set
+  `RETICULATE_PYTHON` (or use `use_virtualenv()`/`use_condaenv()`) before importing.
+- **Environment conflicts**: Restart R, clear `.Rprofile` hooks that select other
+  environments, and re-run the `use_*env()` calls.
+- **Windows builds**: If building vignettes from source, ensure a working `rmarkdown`
+  toolchain (pandoc is bundled with RStudio) and that the chosen Python is on PATH.
+
+---
+
+## Appendix: Mathematical details
+
+- Normalizing constant: \(c = 3/500\) so that \(\int_{-5}^{5} c(25 - y^2)\,dy = 1\).
+- CDF on \((-5,5)\): \(F(y) = 1/2 + 0.15\,y - y^3/500\); 0 for \(y\le -5\), 1 for \(y\ge 5\).
+- Quantiles computed by bisection on \([-5,5]\) to invert \(F\).
+
+---
+
+## Session info
+
+```{r}
+sessionInfo()
+```
