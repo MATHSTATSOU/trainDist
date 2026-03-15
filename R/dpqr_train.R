@@ -1,4 +1,3 @@
-
 #' Density for the Train Delay Distribution
 #'
 #' Implements d(x) for Y with pdf f(y) = c(25 - y^2) on (-5, 5), c = 3/500.

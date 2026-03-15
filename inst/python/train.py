@@ -78,3 +78,4 @@ def rtrain(n: int, seed: int = None):
         raise ValueError("n must be non-negative")
     us = [random.random() for _ in range(int(n))]
     return [_q_scalar(u) for u in us]
+
